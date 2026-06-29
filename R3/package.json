@@ -1,6 +1,6 @@
 {
   "name": "com.seikasan.r3-extensions",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "displayName": "R3 Extensions",
   "description": "Personal R3 lifetime helpers for using AddTo(this) from pure C# objects.",
   "unity": "6000.3",
