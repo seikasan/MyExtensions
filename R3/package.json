@@ -6,7 +6,7 @@
   "unity": "6000.3",
   "license": "MIT",
   "dependencies": {
-    "com.cysharp.r3": "1.0.0"
+    "com.cysharp.r3": "1.1.0"
   },
   "author": {
     "name": "seikasan",

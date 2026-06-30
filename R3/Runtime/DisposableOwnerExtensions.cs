@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 
 namespace MyExtensions.R3
 {
@@ -14,6 +15,13 @@ namespace MyExtensions.R3
 
             owner.Add(disposable);
             return disposable;
+        }
+
+        public static CancellationToken GetCancellationTokenOnDispose(
+            this IDisposableOwner owner)
+        {
+            if (owner == null) throw new ArgumentNullException(nameof(owner));
+            return owner.DisposeCancellationToken;
         }
     }
 }

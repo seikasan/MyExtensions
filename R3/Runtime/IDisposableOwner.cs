@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 
 namespace MyExtensions.R3
 {
@@ -6,6 +7,7 @@ namespace MyExtensions.R3
     {
         bool IsDisposed { get; }
 
+        CancellationToken DisposeCancellationToken { get; }
         void Add(IDisposable disposable);
     }
 }

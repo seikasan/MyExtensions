@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using R3;
 
 namespace MyExtensions.R3
@@ -6,6 +7,7 @@ namespace MyExtensions.R3
     public abstract class DisposableObject : IDisposableOwner, IDisposable
     {
         private readonly object _gate = new();
+        private readonly CancellationDisposable _cancellation = new();
         private CompositeDisposable _disposables = new();
         private bool _disposed;
 
@@ -20,12 +22,11 @@ namespace MyExtensions.R3
             }
         }
 
+        public CancellationToken DisposeCancellationToken => _cancellation.Token;
+
         public void Add(IDisposable disposable)
         {
-            if (disposable == null)
-            {
-                throw new ArgumentNullException(nameof(disposable));
-            }
+            if (disposable == null) throw new ArgumentNullException(nameof(disposable));
 
             lock (_gate)
             {
@@ -41,18 +42,19 @@ namespace MyExtensions.R3
 
         public void Dispose()
         {
-            CompositeDisposable target;
+            CompositeDisposable disposables;
 
             lock (_gate)
             {
                 if (_disposed) return;
 
                 _disposed = true;
-                target = _disposables;
+                disposables = _disposables;
                 _disposables = null;
             }
 
-            target?.Dispose();
+            _cancellation.Dispose();
+            disposables?.Dispose();
             OnDisposed();
 
             GC.SuppressFinalize(this);
