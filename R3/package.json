@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "displayName": "R3 Extensions",
   "description": "Personal R3 lifetime helpers for using AddTo(this) from pure C# objects.",
-  "unity": "6000.3",
+  "unity": "2021.3",
   "license": "MIT",
   "dependencies": {
     "com.cysharp.r3": "1.0.0"
