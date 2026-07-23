@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using R3;
 using UnityEngine.InputSystem;
@@ -10,58 +11,52 @@ namespace MyExtensions.InputSystem.R3
         public static Observable<Unit> StartedAsObservable(
             this InputAction action)
         {
-            return Create(
+            return Create<Unit, UnitSelector>(
                 action,
-                InputActionPhase.Started,
-                _ => Unit.Default);
+                InputActionPhase.Started);
         }
 
         public static Observable<Unit> PerformedAsObservable(
             this InputAction action)
         {
-            return Create(
+            return Create<Unit, UnitSelector>(
                 action,
-                InputActionPhase.Performed,
-                _ => Unit.Default);
+                InputActionPhase.Performed);
         }
 
         public static Observable<Unit> CanceledAsObservable(
             this InputAction action)
         {
-            return Create(
+            return Create<Unit, UnitSelector>(
                 action,
-                InputActionPhase.Canceled,
-                _ => Unit.Default);
+                InputActionPhase.Canceled);
         }
 
         public static Observable<TValue> StartedAsObservable<TValue>(
             this InputAction action)
             where TValue : struct
         {
-            return Create(
+            return Create<TValue, ValueSelector<TValue>>(
                 action,
-                InputActionPhase.Started,
-                context => context.ReadValue<TValue>());
+                InputActionPhase.Started);
         }
 
         public static Observable<TValue> PerformedAsObservable<TValue>(
             this InputAction action)
             where TValue : struct
         {
-            return Create(
+            return Create<TValue, ValueSelector<TValue>>(
                 action,
-                InputActionPhase.Performed,
-                context => context.ReadValue<TValue>());
+                InputActionPhase.Performed);
         }
 
         public static Observable<TValue> CanceledAsObservable<TValue>(
             this InputAction action)
             where TValue : struct
         {
-            return Create(
+            return Create<TValue, ValueSelector<TValue>>(
                 action,
-                InputActionPhase.Canceled,
-                context => context.ReadValue<TValue>());
+                InputActionPhase.Canceled);
         }
 
         public static Observable<Unit> StartedAsObservable(
@@ -123,25 +118,64 @@ namespace MyExtensions.InputSystem.R3
             return reference.action;
         }
 
-        private static Observable<T> Create<T>(
+        private static Observable<T> Create<T, TSelector>(
             InputAction action,
-            InputActionPhase phase,
-            Func<InputAction.CallbackContext, T> selector)
+            InputActionPhase phase)
+            where TSelector : struct, ICallbackSelector<T>
         {
             if (action == null)
             {
                 throw new ArgumentNullException(nameof(action));
             }
 
-            if (selector == null)
-            {
-                throw new ArgumentNullException(nameof(selector));
-            }
-
-            return new InputActionPhaseObservable<T>(
+            return new InputActionPhaseObservable<T, TSelector>(
                 action,
-                phase,
-                selector);
+                phase);
+        }
+
+        private static void AddHandler(
+            InputAction action,
+            InputActionPhase phase,
+            Action<InputAction.CallbackContext> handler)
+        {
+            switch (phase)
+            {
+                case InputActionPhase.Started:
+                    action.started += handler;
+                    break;
+
+                case InputActionPhase.Performed:
+                    action.performed += handler;
+                    break;
+
+                case InputActionPhase.Canceled:
+                    action.canceled += handler;
+                    break;
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(phase));
+            }
+        }
+
+        private static void RemoveHandler(
+            InputAction action,
+            InputActionPhase phase,
+            Action<InputAction.CallbackContext> handler)
+        {
+            switch (phase)
+            {
+                case InputActionPhase.Started:
+                    action.started -= handler;
+                    break;
+
+                case InputActionPhase.Performed:
+                    action.performed -= handler;
+                    break;
+
+                case InputActionPhase.Canceled:
+                    action.canceled -= handler;
+                    break;
+            }
         }
 
         private enum InputActionPhase
@@ -151,21 +185,45 @@ namespace MyExtensions.InputSystem.R3
             Canceled
         }
 
-        private sealed class InputActionPhaseObservable<T>
+        private interface ICallbackSelector<T>
+        {
+            T Select(InputAction.CallbackContext context);
+        }
+
+        private readonly struct UnitSelector
+            : ICallbackSelector<Unit>
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public Unit Select(InputAction.CallbackContext context)
+            {
+                return Unit.Default;
+            }
+        }
+
+        private readonly struct ValueSelector<TValue>
+            : ICallbackSelector<TValue>
+            where TValue : struct
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public TValue Select(InputAction.CallbackContext context)
+            {
+                return context.ReadValue<TValue>();
+            }
+        }
+
+        private sealed class InputActionPhaseObservable<T, TSelector>
             : Observable<T>
+            where TSelector : struct, ICallbackSelector<T>
         {
             private readonly InputAction _action;
             private readonly InputActionPhase _phase;
-            private readonly Func<InputAction.CallbackContext, T> _selector;
 
             public InputActionPhaseObservable(
                 InputAction action,
-                InputActionPhase phase,
-                Func<InputAction.CallbackContext, T> selector)
+                InputActionPhase phase)
             {
                 _action = action;
                 _phase = phase;
-                _selector = selector;
             }
 
             protected override IDisposable SubscribeCore(
@@ -174,7 +232,6 @@ namespace MyExtensions.InputSystem.R3
                 return new Subscription(
                     _action,
                     _phase,
-                    _selector,
                     observer);
             }
 
@@ -182,7 +239,6 @@ namespace MyExtensions.InputSystem.R3
             {
                 private readonly InputAction _action;
                 private readonly InputActionPhase _phase;
-                private readonly Func<InputAction.CallbackContext, T> _selector;
                 private readonly Observer<T> _observer;
                 private readonly Action<InputAction.CallbackContext> _handler;
 
@@ -191,55 +247,14 @@ namespace MyExtensions.InputSystem.R3
                 public Subscription(
                     InputAction action,
                     InputActionPhase phase,
-                    Func<InputAction.CallbackContext, T> selector,
                     Observer<T> observer)
                 {
                     _action = action;
                     _phase = phase;
-                    _selector = selector;
                     _observer = observer;
                     _handler = OnCallback;
 
-                    AddHandler();
-                }
-
-                private void AddHandler()
-                {
-                    switch (_phase)
-                    {
-                        case InputActionPhase.Started:
-                            _action.started += _handler;
-                            break;
-
-                        case InputActionPhase.Performed:
-                            _action.performed += _handler;
-                            break;
-
-                        case InputActionPhase.Canceled:
-                            _action.canceled += _handler;
-                            break;
-
-                        default:
-                            throw new ArgumentOutOfRangeException();
-                    }
-                }
-
-                private void RemoveHandler()
-                {
-                    switch (_phase)
-                    {
-                        case InputActionPhase.Started:
-                            _action.started -= _handler;
-                            break;
-
-                        case InputActionPhase.Performed:
-                            _action.performed -= _handler;
-                            break;
-
-                        case InputActionPhase.Canceled:
-                            _action.canceled -= _handler;
-                            break;
-                    }
+                    AddHandler(_action, _phase, _handler);
                 }
 
                 private void OnCallback(
@@ -254,7 +269,8 @@ namespace MyExtensions.InputSystem.R3
 
                     try
                     {
-                        value = _selector(context);
+                        var selector = default(TSelector);
+                        value = selector.Select(context);
                     }
                     catch (Exception exception)
                     {
@@ -272,7 +288,7 @@ namespace MyExtensions.InputSystem.R3
                         return;
                     }
 
-                    RemoveHandler();
+                    RemoveHandler(_action, _phase, _handler);
                 }
             }
         }

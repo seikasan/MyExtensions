@@ -12,6 +12,18 @@ namespace MyExtensions.InputSystem.R3
 
     public static class InputBufferExtensions
     {
+        private static readonly TimerCallback ExpiryCallback = OnExpiryTimer;
+
+        private static void OnExpiryTimer(object state)
+        {
+            ((IExpiryTimerTarget)state).OnExpiryTimer();
+        }
+
+        private interface IExpiryTimerTarget
+        {
+            void OnExpiryTimer();
+        }
+
         public static Observable<T> BufferUntil<T>(
             this Observable<T> source,
             Func<bool> canExecuteNow,
@@ -104,10 +116,9 @@ namespace MyExtensions.InputSystem.R3
                 return coordinator;
             }
 
-            private sealed class Coordinator : IDisposable
+            private sealed class Coordinator
+                : IDisposable, IExpiryTimerTarget
             {
-                private static readonly TimerCallback ExpiryCallback = OnExpiryTimer;
-
                 private readonly object _sync = new();
 
                 private readonly Observer<T> _downstream;
@@ -117,6 +128,7 @@ namespace MyExtensions.InputSystem.R3
                 private readonly TimeSpan _lifetime;
                 private readonly InputBufferPolicy _policy;
                 private readonly TimeProvider _timeProvider;
+                private readonly bool _usesUnityTimestampTicks;
 
                 private IDisposable _sourceSubscription;
                 private IDisposable _conditionSubscription;
@@ -124,7 +136,7 @@ namespace MyExtensions.InputSystem.R3
 
                 private T _bufferedValue;
                 private bool _hasBufferedValue;
-                private long _bufferVersion;
+                private long _bufferedAtTimestamp;
                 private int _disposed;
 
                 public Coordinator(
@@ -143,19 +155,32 @@ namespace MyExtensions.InputSystem.R3
                     _lifetime = lifetime;
                     _policy = policy;
                     _timeProvider = timeProvider;
+                    _usesUnityTimestampTicks = timeProvider is UnityTimeProvider;
                 }
 
                 public void Start()
                 {
-                    var condition = _canExecuteChanged.Subscribe(
-                        new ConditionObserver(this));
+                    try
+                    {
+                        var condition = _canExecuteChanged.Subscribe(
+                            new ConditionObserver(this));
 
-                    AttachConditionSubscription(condition);
+                        AttachSubscription(
+                            ref _conditionSubscription,
+                            condition);
 
-                    var input = _source.Subscribe(
-                        new SourceObserver(this));
+                        var input = _source.Subscribe(
+                            new SourceObserver(this));
 
-                    AttachSourceSubscription(input);
+                        AttachSubscription(
+                            ref _sourceSubscription,
+                            input);
+                    }
+                    catch
+                    {
+                        Dispose();
+                        throw;
+                    }
                 }
 
                 public void OnSourceNext(T value)
@@ -191,12 +216,10 @@ namespace MyExtensions.InputSystem.R3
 
                 public void OnConditionChanged(bool value)
                 {
-                    if (!value)
+                    if (value)
                     {
-                        return;
+                        TryConsume();
                     }
-
-                    TryConsume();
                 }
 
                 public void OnErrorResume(Exception exception)
@@ -213,8 +236,7 @@ namespace MyExtensions.InputSystem.R3
 
                 private void Buffer(T value)
                 {
-                    ITimer previousTimer;
-                    long version;
+                    ITimer timerToDispose = null;
 
                     lock (_sync)
                     {
@@ -229,61 +251,69 @@ namespace MyExtensions.InputSystem.R3
                             return;
                         }
 
-                        _bufferedValue = value;
-                        _hasBufferedValue = true;
-                        version = ++_bufferVersion;
-
-                        previousTimer = _expiryTimer;
-                        _expiryTimer = null;
-                    }
-
-                    if (previousTimer != null)
-                    {
-                        previousTimer.Dispose();
-                    }
-
-                    ITimer newTimer;
-
-                    try
-                    {
-                        newTimer = _timeProvider.CreateTimer(
-                            ExpiryCallback,
-                            new ExpiryState(this, version),
-                            _lifetime,
-                            Timeout.InfiniteTimeSpan);
-                    }
-                    catch
-                    {
-                        lock (_sync)
+                        try
                         {
-                            if (_bufferVersion == version)
+                            var timestamp = _timeProvider.GetTimestamp();
+
+                            _bufferedValue = value;
+                            _hasBufferedValue = true;
+                            _bufferedAtTimestamp = timestamp;
+
+                            if (_expiryTimer == null ||
+                                !_expiryTimer.Change(
+                                    _lifetime,
+                                    Timeout.InfiniteTimeSpan))
                             {
-                                _hasBufferedValue = false;
-                                _bufferedValue = default(T);
-                                _bufferVersion++;
+                                timerToDispose = _expiryTimer;
+                                _expiryTimer = CreateExpiryTimerLocked();
+
+                                if (!_expiryTimer.Change(
+                                        _lifetime,
+                                        Timeout.InfiniteTimeSpan))
+                                {
+                                    throw new InvalidOperationException(
+                                        "The input buffer timer could not be scheduled.");
+                                }
                             }
                         }
-
-                        throw;
-                    }
-
-                    var keepTimer = false;
-
-                    lock (_sync)
-                    {
-                        if (_disposed == 0 &&
-                            _hasBufferedValue &&
-                            _bufferVersion == version)
+                        catch
                         {
-                            _expiryTimer = newTimer;
-                            keepTimer = true;
+                            var timer = _expiryTimer;
+
+                            _expiryTimer = null;
+                            _hasBufferedValue = false;
+                            _bufferedValue = default;
+                            _bufferedAtTimestamp = 0;
+
+                            timer?.Dispose();
+
+                            if (!ReferenceEquals(timer, timerToDispose))
+                            {
+                                timerToDispose?.Dispose();
+                            }
+
+                            throw;
                         }
                     }
 
-                    if (!keepTimer)
+                    timerToDispose?.Dispose();
+                }
+
+                private ITimer CreateExpiryTimerLocked()
+                {
+                    var timer = _timeProvider.CreateTimer(
+                        ExpiryCallback,
+                        this,
+                        Timeout.InfiniteTimeSpan,
+                        Timeout.InfiniteTimeSpan);
+
+                    if (timer == null)
                     {
-                        newTimer.Dispose();
+                        throw new InvalidOperationException(
+                            "The time provider returned a null timer.");
                     }
+
+                    return timer;
                 }
 
                 private void TryConsume()
@@ -311,7 +341,6 @@ namespace MyExtensions.InputSystem.R3
                     }
 
                     T value;
-                    ITimer timer;
 
                     lock (_sync)
                     {
@@ -321,71 +350,85 @@ namespace MyExtensions.InputSystem.R3
                         }
 
                         value = _bufferedValue;
-
-                        _hasBufferedValue = false;
-                        _bufferedValue = default(T);
-                        _bufferVersion++;
-
-                        timer = _expiryTimer;
-                        _expiryTimer = null;
-                    }
-
-                    if (timer != null)
-                    {
-                        timer.Dispose();
+                        ClearBufferedValueLocked();
                     }
 
                     _downstream.OnNext(value);
                 }
 
-                private void Expire(long version)
+                private void Expire()
                 {
-                    ITimer timer;
-
                     lock (_sync)
                     {
-                        if (_disposed != 0 ||
-                            !_hasBufferedValue ||
-                            _bufferVersion != version)
+                        if (_disposed != 0 || !_hasBufferedValue)
                         {
                             return;
                         }
 
+                        var elapsed = GetElapsedTimeLocked();
+
+                        if (elapsed < _lifetime)
+                        {
+                            var remaining = _lifetime - elapsed;
+
+                            if (_expiryTimer == null ||
+                                !_expiryTimer.Change(
+                                    remaining,
+                                    Timeout.InfiniteTimeSpan))
+                            {
+                                ClearBufferedValueLocked();
+                            }
+
+                            return;
+                        }
+
                         _hasBufferedValue = false;
-                        _bufferedValue = default(T);
-                        _bufferVersion++;
-
-                        timer = _expiryTimer;
-                        _expiryTimer = null;
+                        _bufferedValue = default;
+                        _bufferedAtTimestamp = 0;
                     }
+                }
 
-                    if (timer != null)
+                private TimeSpan GetElapsedTimeLocked()
+                {
+                    var currentTimestamp = _timeProvider.GetTimestamp();
+
+                    if (_usesUnityTimestampTicks)
                     {
-                        timer.Dispose();
+                        return TimeSpan.FromTicks(
+                            currentTimestamp - _bufferedAtTimestamp);
                     }
+
+                    return _timeProvider.GetElapsedTime(
+                        _bufferedAtTimestamp,
+                        currentTimestamp);
                 }
 
                 private void ClearBufferedValue()
                 {
-                    ITimer timer;
-
                     lock (_sync)
                     {
-                        _hasBufferedValue = false;
-                        _bufferedValue = default(T);
-                        _bufferVersion++;
+                        if (!_hasBufferedValue)
+                        {
+                            return;
+                        }
 
-                        timer = _expiryTimer;
-                        _expiryTimer = null;
-                    }
-
-                    if (timer != null)
-                    {
-                        timer.Dispose();
+                        ClearBufferedValueLocked();
                     }
                 }
 
-                private void AttachSourceSubscription(
+                private void ClearBufferedValueLocked()
+                {
+                    _hasBufferedValue = false;
+                    _bufferedValue = default;
+                    _bufferedAtTimestamp = 0;
+
+                    _expiryTimer?.Change(
+                        Timeout.InfiniteTimeSpan,
+                        Timeout.InfiniteTimeSpan);
+                }
+
+                private void AttachSubscription(
+                    ref IDisposable target,
                     IDisposable subscription)
                 {
                     var disposeImmediately = false;
@@ -398,30 +441,7 @@ namespace MyExtensions.InputSystem.R3
                         }
                         else
                         {
-                            _sourceSubscription = subscription;
-                        }
-                    }
-
-                    if (disposeImmediately)
-                    {
-                        subscription.Dispose();
-                    }
-                }
-
-                private void AttachConditionSubscription(
-                    IDisposable subscription)
-                {
-                    var disposeImmediately = false;
-
-                    lock (_sync)
-                    {
-                        if (_disposed != 0)
-                        {
-                            disposeImmediately = true;
-                        }
-                        else
-                        {
-                            _conditionSubscription = subscription;
+                            target = subscription;
                         }
                     }
 
@@ -453,46 +473,18 @@ namespace MyExtensions.InputSystem.R3
                         _expiryTimer = null;
 
                         _hasBufferedValue = false;
-                        _bufferedValue = default(T);
-                        _bufferVersion++;
+                        _bufferedValue = default;
+                        _bufferedAtTimestamp = 0;
                     }
 
-                    if (timer != null)
-                    {
-                        timer.Dispose();
-                    }
-
-                    if (input != null)
-                    {
-                        input.Dispose();
-                    }
-
-                    if (condition != null)
-                    {
-                        condition.Dispose();
-                    }
+                    timer?.Dispose();
+                    input?.Dispose();
+                    condition?.Dispose();
                 }
 
-                private static void OnExpiryTimer(object state)
+                void IExpiryTimerTarget.OnExpiryTimer()
                 {
-                    var expiryState = (ExpiryState)state;
-
-                    expiryState.Owner.Expire(
-                        expiryState.Version);
-                }
-
-                private sealed class ExpiryState
-                {
-                    public readonly Coordinator Owner;
-                    public readonly long Version;
-
-                    public ExpiryState(
-                        Coordinator owner,
-                        long version)
-                    {
-                        Owner = owner;
-                        Version = version;
-                    }
+                    Expire();
                 }
 
                 private sealed class SourceObserver : Observer<T>
