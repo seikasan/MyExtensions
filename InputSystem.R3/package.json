@@ -1,6 +1,6 @@
 {
   "name": "com.seikasan.input-system-r3-extensions",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "displayName": "Input System R3 Extensions",
   "description": "Personal Input System helpers for transforming Input System events into R3 observables.",
   "unity": "6000.3",
