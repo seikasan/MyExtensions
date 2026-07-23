@@ -1,0 +1,17 @@
+{
+  "name": "MyExtensions.InputSystem.R3",
+  "rootNamespace": "MyExtensions.InputSystem.R3",
+  "references": [
+    "R3.Unity",
+    "Unity.InputSystem"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
