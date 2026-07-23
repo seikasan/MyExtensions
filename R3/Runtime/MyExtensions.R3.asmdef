@@ -2,7 +2,6 @@
   "name": "MyExtensions.R3",
   "rootNamespace": "MyExtensions.R3",
   "references": [
-    "R3"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],
