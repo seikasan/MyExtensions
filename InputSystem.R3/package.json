@@ -1,13 +1,13 @@
 {
   "name": "com.seikasan.input-system-r3-extensions",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "displayName": "Input System R3 Extensions",
-  "description": "Personal Input System helpers for transforming Input System events into R3 observables.",
+  "description": "Personal Input System helpers for transforming Input System events and continuously polled values into R3 observables, with input buffering.",
   "unity": "6000.3",
   "license": "MIT",
   "dependencies": {
     "com.cysharp.r3": "1.0.0",
-    "com.unity.inputsystem": "1.0.0"
+    "com.unity.inputsystem": "1.1.1"
   },
   "author": {
     "name": "seika",

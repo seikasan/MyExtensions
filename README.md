@@ -18,7 +18,32 @@ https://github.com/seikasan/MyExtensions.git?path=R3
 
 ## InputSystem.R3
 
-入力を Observable に変換したり、入力バッファに溜めたりできます。
+入力イベントと継続値を Observable に変換したり、入力バッファに溜めたりできます。
+
+`PerformedAsObservable()` は、Input Action の `performed` が発生した瞬間だけ通知します。ジャンプや決定などの単発入力に使用します。押している間の連続処理や移動値の継続取得には、ポーリング用の API を使用してください。
+
+```csharp
+// 押した瞬間に一度だけ通知
+jumpAction
+    .PerformedAsObservable()
+    .Subscribe(_ => Jump());
+
+// 押している間、Input System の更新ごとに通知
+fireAction
+    .WhilePressedAsObservable()
+    .Subscribe(_ => Fire());
+
+// 同じ値を保持している間も、現在値を継続して通知
+moveAction
+    .ReadValueAsObservable<Vector2>()
+    .Subscribe(Move);
+
+// 押下状態を継続して通知。状態変化だけなら DistinctUntilChanged を追加
+guardAction
+    .IsPressedAsObservable()
+    .DistinctUntilChanged()
+    .Subscribe(SetGuarding);
+```
 
 ### 使用方法
 

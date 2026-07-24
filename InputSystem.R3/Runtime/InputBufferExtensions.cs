@@ -4,12 +4,25 @@ using R3;
 
 namespace MyExtensions.InputSystem.R3
 {
+    /// <summary>
+    /// Specifies how a single-slot input buffer handles additional values before consumption.
+    /// </summary>
     public enum InputBufferPolicy
     {
+        /// <summary>
+        /// Keeps the first buffered value and ignores later values until it is consumed or expires.
+        /// </summary>
         First,
+
+        /// <summary>
+        /// Replaces the buffered value with the most recently received value and restarts its lifetime.
+        /// </summary>
         Latest
     }
 
+    /// <summary>
+    /// Provides R3 operators for retaining input values until an execution condition becomes true.
+    /// </summary>
     public static class InputBufferExtensions
     {
         private static readonly TimerCallback ExpiryCallback = OnExpiryTimer;
@@ -24,6 +37,30 @@ namespace MyExtensions.InputSystem.R3
             void OnExpiryTimer();
         }
 
+        /// <summary>
+        /// Emits source values immediately when execution is allowed, or temporarily buffers one value
+        /// until execution becomes allowed.
+        /// </summary>
+        /// <typeparam name="T">The type of input value.</typeparam>
+        /// <param name="source">The source observable containing input values.</param>
+        /// <param name="canExecuteNow">A synchronous function that returns whether a value can be emitted now.</param>
+        /// <param name="canExecuteChanged">An observable that notifies changes to the execution condition.</param>
+        /// <param name="lifetime">The maximum duration for which a value remains buffered.</param>
+        /// <param name="policy">The policy used when another value arrives while a value is buffered.</param>
+        /// <param name="timeProvider">The provider used to measure and schedule the buffer lifetime. When omitted, the Unity update time provider is used.</param>
+        /// <returns>An observable that emits immediately executable values and valid buffered values.</returns>
+        /// <remarks>
+        /// The buffer stores at most one value. A buffered value is emitted once when
+        /// <paramref name="canExecuteChanged"/> publishes <see langword="true"/> and
+        /// <paramref name="canExecuteNow"/> also returns <see langword="true"/>.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="source"/>, <paramref name="canExecuteNow"/>, or
+        /// <paramref name="canExecuteChanged"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="lifetime"/> is not positive, or <paramref name="policy"/> is invalid.
+        /// </exception>
         public static Observable<T> BufferUntil<T>(
             this Observable<T> source,
             Func<bool> canExecuteNow,
@@ -84,6 +121,15 @@ namespace MyExtensions.InputSystem.R3
             private readonly InputBufferPolicy _policy;
             private readonly TimeProvider _timeProvider;
 
+            /// <summary>
+            /// Initializes an input-buffer observable.
+            /// </summary>
+            /// <param name="source">The source input observable.</param>
+            /// <param name="canExecuteNow">The synchronous execution-condition reader.</param>
+            /// <param name="canExecuteChanged">The execution-condition change stream.</param>
+            /// <param name="lifetime">The maximum buffered duration.</param>
+            /// <param name="policy">The replacement policy for buffered values.</param>
+            /// <param name="timeProvider">The provider used for timing.</param>
             public InputBufferObservable(
                 Observable<T> source,
                 Func<bool> canExecuteNow,
@@ -100,6 +146,7 @@ namespace MyExtensions.InputSystem.R3
                 _timeProvider = timeProvider;
             }
 
+            /// <inheritdoc />
             protected override IDisposable SubscribeCore(
                 Observer<T> observer)
             {
@@ -139,6 +186,16 @@ namespace MyExtensions.InputSystem.R3
                 private long _bufferedAtTimestamp;
                 private int _disposed;
 
+                /// <summary>
+                /// Initializes the coordinator that owns source, condition, and timer subscriptions.
+                /// </summary>
+                /// <param name="downstream">The downstream observer.</param>
+                /// <param name="source">The source input observable.</param>
+                /// <param name="canExecuteNow">The synchronous execution-condition reader.</param>
+                /// <param name="canExecuteChanged">The execution-condition change stream.</param>
+                /// <param name="lifetime">The maximum buffered duration.</param>
+                /// <param name="policy">The replacement policy for buffered values.</param>
+                /// <param name="timeProvider">The provider used for timing.</param>
                 public Coordinator(
                     Observer<T> downstream,
                     Observable<T> source,
@@ -158,6 +215,9 @@ namespace MyExtensions.InputSystem.R3
                     _usesUnityTimestampTicks = timeProvider is UnityTimeProvider;
                 }
 
+                /// <summary>
+                /// Starts subscriptions to the execution condition and source observable.
+                /// </summary>
                 public void Start()
                 {
                     try
@@ -183,6 +243,10 @@ namespace MyExtensions.InputSystem.R3
                     }
                 }
 
+                /// <summary>
+                /// Handles an input value received from the source observable.
+                /// </summary>
+                /// <param name="value">The received input value.</param>
                 public void OnSourceNext(T value)
                 {
                     if (Volatile.Read(ref _disposed) != 0)
@@ -214,6 +278,10 @@ namespace MyExtensions.InputSystem.R3
                     Buffer(value);
                 }
 
+                /// <summary>
+                /// Handles a change to the execution condition.
+                /// </summary>
+                /// <param name="value">The latest execution-condition value.</param>
                 public void OnConditionChanged(bool value)
                 {
                     if (value)
@@ -222,11 +290,19 @@ namespace MyExtensions.InputSystem.R3
                     }
                 }
 
+                /// <summary>
+                /// Forwards a recoverable source error to the downstream observer.
+                /// </summary>
+                /// <param name="exception">The error to forward.</param>
                 public void OnErrorResume(Exception exception)
                 {
                     _downstream.OnErrorResume(exception);
                 }
 
+                /// <summary>
+                /// Completes the downstream observer and releases owned resources.
+                /// </summary>
+                /// <param name="result">The source completion result.</param>
                 public void OnSourceCompleted(Result result)
                 {
                     ClearBufferedValue();
@@ -451,6 +527,7 @@ namespace MyExtensions.InputSystem.R3
                     }
                 }
 
+                /// <inheritdoc />
                 public void Dispose()
                 {
                     if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -491,22 +568,29 @@ namespace MyExtensions.InputSystem.R3
                 {
                     private readonly Coordinator _owner;
 
+                    /// <summary>
+                    /// Initializes an observer that forwards source notifications to its coordinator.
+                    /// </summary>
+                    /// <param name="owner">The owning coordinator.</param>
                     public SourceObserver(Coordinator owner)
                     {
                         _owner = owner;
                     }
 
+                    /// <inheritdoc />
                     protected override void OnNextCore(T value)
                     {
                         _owner.OnSourceNext(value);
                     }
 
+                    /// <inheritdoc />
                     protected override void OnErrorResumeCore(
                         Exception error)
                     {
                         _owner.OnErrorResume(error);
                     }
 
+                    /// <inheritdoc />
                     protected override void OnCompletedCore(
                         Result result)
                     {
@@ -519,22 +603,29 @@ namespace MyExtensions.InputSystem.R3
                 {
                     private readonly Coordinator _owner;
 
+                    /// <summary>
+                    /// Initializes an observer that forwards condition changes to its coordinator.
+                    /// </summary>
+                    /// <param name="owner">The owning coordinator.</param>
                     public ConditionObserver(Coordinator owner)
                     {
                         _owner = owner;
                     }
 
+                    /// <inheritdoc />
                     protected override void OnNextCore(bool value)
                     {
                         _owner.OnConditionChanged(value);
                     }
 
+                    /// <inheritdoc />
                     protected override void OnErrorResumeCore(
                         Exception error)
                     {
                         _owner.OnErrorResume(error);
                     }
 
+                    /// <inheritdoc />
                     protected override void OnCompletedCore(
                         Result result)
                     {
