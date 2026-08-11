@@ -1,0 +1,15 @@
+{
+  "name": "com.seikasan.scenes-extensions",
+  "version": "1.0.0",
+  "displayName": "Scenes Extensions",
+  "description": "Personal Scene helpers.",
+  "unity": "6000.3",
+  "license": "MIT",
+  "dependencies": {
+    "com.cysharp.unitask": "1.0.0"
+  },
+  "author": {
+    "name": "seika",
+    "url": "https://github.com/seikasan"
+  }
+}

@@ -6,7 +6,9 @@
 
 MonoBehaviour 以外でも `AddTo(this)` したいので `AddTo(this)` できるようにしました。
 
-### 使用方法
+`DisposableObject` を継承することで、pure C# でも `AddTo(this)` が使えます。
+
+### 導入方法
 
 1. Window > Package ManagerからPackage Managerを開く
 2. 「+」ボタン > Add package from git URL
@@ -45,7 +47,7 @@ guardAction
     .Subscribe(SetGuarding);
 ```
 
-### 使用方法
+### 導入方法
 
 1. Window > Package ManagerからPackage Managerを開く
 2. 「+」ボタン > Add package from git URL
@@ -53,4 +55,45 @@ guardAction
 
 ```
 https://github.com/seikasan/MyExtensions.git?path=InputSystem.R3
+```
+
+## Scenes
+
+Scene を string で管理したくなかったので、SceneReference を使って Scene を管理します。
+
+`Create -> Scenes -> Scene Reference` から ScriptableObject を作り、それを `SceneReference` として使用します。
+
+VContainer 等で `ISceneLoader` として `SceneLoader` を受け取ると、`LoadAsync()` や `UnloadAsync()` などの非同期メソッドを使用できます。
+
+普通に作ることもできる
+
+```csharp
+ISceneLoader sceneLoader;
+
+bool isBusy = sceneLoader.IsBusy;
+
+Scene scene = await sceneLoader.LoadAsync(sceneReference);
+await sceneLoader.UnloadAsync(scene);
+
+// handle
+ScenePreloadHandle handle = await sceneLoader.PreloadAsync(sceneReference);
+
+ScenePreloadState state = handle.State;
+Scene scene = handle.Scene;
+bool isReady = handle.IsReady;
+float progress = handle.Progress;
+
+// どっちか
+Scene scene = await handle.ActivateAsync();
+await handle.DiscardAsync();
+```
+
+### 導入方法
+
+1. Window > Package ManagerからPackage Managerを開く
+2. 「+」ボタン > Add package from git URL
+3. 以下のURLを入力する
+
+```
+https://github.com/seikasan/MyExtensions.git?path=Scenes
 ```
