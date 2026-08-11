@@ -65,7 +65,7 @@ Scene を string で管理したくなかったので、SceneReference を使っ
 
 VContainer 等で `ISceneLoader` として `SceneLoader` を受け取ると、`LoadAsync()` や `UnloadAsync()` などの非同期メソッドを使用できます。
 
-普通に作ることもできる
+普通に作ることもできる。
 
 ```csharp
 ISceneLoader sceneLoader;
