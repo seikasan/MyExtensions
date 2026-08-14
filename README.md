@@ -97,3 +97,22 @@ await handle.DiscardAsync();
 ```
 https://github.com/seikasan/MyExtensions.git?path=Scenes
 ```
+
+## Logger
+
+使い方↓
+
+```
+// "[クラス名] Debug.Log() 相当" と出る。
+Logger.Log(this, "Debug.Log() 相当");
+
+// "[クラス名] Debug.LogWarning() 相当" と出る。
+Logger.LogWarning(this, "Debug.LogWarning() 相当");
+
+// "[クラス名] Debug.LogError() 相当" と出る。
+Logger.LogError(this, "Debug.LogError() 相当");
+```
+
+### 導入方法
+
+コピペしてください。
