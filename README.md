@@ -116,3 +116,41 @@ Logger.LogError(this, "Debug.LogError() 相当");
 ### 導入方法
 
 コピペしてください。
+
+## UniTask
+
+CancellationToken を渡すときにいちいち `cancellationToken: ct` と書くのが面倒なので `ct` だけで済むように拡張メソッドを作りました。
+
+こんな感じに書けます。
+
+```csharp
+async UniTask RunAsync(CancellationToken ct)
+{
+    await ct.NextFrame();
+
+    await ct.Delay(1000);
+
+    await ct.WaitUntil(() => IsReady);
+
+    await SceneManager
+        .LoadSceneAsync("Main")
+        .ToUniTask(ct);
+
+    var prefab = await Resources
+        .LoadAsync<GameObject>("Player")
+        .ToUniTask(ct);
+
+    var result = await ct.RunOnThreadPool(
+        () => ExpensiveCalculation());
+}
+```
+
+### 導入方法
+
+1. Window > Package ManagerからPackage Managerを開く
+2. 「+」ボタン > Add package from git URL
+3. 以下のURLを入力する
+
+```
+https://github.com/seikasan/MyExtensions.git?path=UniTask
+```
